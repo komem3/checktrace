@@ -1,0 +1,17 @@
+version: v1beta1
+
+plugins:
+  - name: go
+    out: ../protogen
+    opt:
+      - paths=source_relative
+  - name: go-grpc
+    out: ../protogen
+    opt:
+      - paths=source_relative
+  - name: grpc-gateway
+    out: ../protogen
+    opt:
+      - paths=source_relative
+  - name: openapiv2
+    out: gen/openapiv2

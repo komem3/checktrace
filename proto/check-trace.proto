@@ -1,0 +1,17 @@
+syntax = "proto3";
+package checktrace;
+option go_package = "github.com/komem3/checktrace/protogen";
+
+import "google/api/annotations.proto";
+
+message StringMessage {
+  string value = 1;
+}
+
+service TraceService {
+  rpc Echo(StringMessage) returns (StringMessage) {
+    option (google.api.http) = {
+      get: "/v1/checktrace/echo"
+    };
+  }
+}
