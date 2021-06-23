@@ -2,16 +2,17 @@ package main
 
 import (
 	"context"
-	"log"
 	"net"
 	"net/http"
 	"os"
 
-	"cloud.google.com/go/compute/metadata"
 	"contrib.go.opencensus.io/exporter/stackdriver"
 	"contrib.go.opencensus.io/exporter/stackdriver/propagation"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/komem3/checktrace"
+	"github.com/komem3/checktrace/internal/gcp"
+	"github.com/komem3/checktrace/internal/logger"
 	"github.com/komem3/checktrace/protogen"
 	"github.com/rs/zerolog"
 	"go.opencensus.io/plugin/ocgrpc"
@@ -22,31 +23,27 @@ import (
 
 func main() {
 	ctx := context.Background()
-	logger := zerolog.New(os.Stderr).Hook(LevelNameHook{})
+	log := logger.NewLogger()
 
-	project := "test"
-	if metadata.OnGCE() {
-		p, err := metadata.ProjectID()
-		if err != nil {
-			logger.Fatal().Err(err).Msg("")
-		}
-		project = p
+	project, err := gcp.Project("test")
+	if err != nil {
+		log.Panic().Err(err).Msg("")
 	}
 	exporter, err := stackdriver.NewExporter(stackdriver.Options{
 		ProjectID: project,
 	})
 	if err != nil {
-		log.Fatal(err)
+		log.Panic().Err(err).Msg("")
 	}
 	trace.RegisterExporter(exporter)
 
-	port := "9000"
+	grpcPort := "9000"
 
-	runGrpc(project, &logger, port)
-	runGateWay(ctx, logger, "localhost:"+port)
+	go runGrpc(project, &log, grpcPort)
+	runGateWay(ctx, log, "localhost:"+grpcPort)
 }
 
-func runGateWay(ctx context.Context, logger zerolog.Logger, target string) {
+func runGateWay(ctx context.Context, log zerolog.Logger, target string) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -56,12 +53,12 @@ func runGateWay(ctx context.Context, logger zerolog.Logger, target string) {
 		grpc.WithStatsHandler(&ocgrpc.ClientHandler{}),
 	)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("prepare dial")
+		log.Panic().Err(err).Msg("prepare dial")
 	}
-	logger.Info().Str("target", target).Msg("connection")
+	log.Info().Str("target", target).Msg("connection")
 
 	if err = protogen.RegisterTraceServiceHandler(ctx, mux, conn); err != nil {
-		logger.Fatal().Err(err).Msg("register mux")
+		log.Panic().Err(err).Msg("register mux")
 	}
 
 	port := os.Getenv("PORT")
@@ -74,28 +71,26 @@ func runGateWay(ctx context.Context, logger zerolog.Logger, target string) {
 		// Use the Google Cloud propagation format.
 		Propagation: &propagation.HTTPFormat{},
 	}
-	logger.Info().Str("port", port).Msg("start gateway")
+	log.Info().Str("port", port).Msg("start gateway")
 	err = http.ListenAndServe(":"+port, httpHandler)
-	logger.Fatal().Err(err).Msg("http serve")
+	log.Panic().Err(err).Msg("http serve")
 }
 
-func runGrpc(project string, logger *zerolog.Logger, port string) {
+func runGrpc(project string, log *zerolog.Logger, port string) {
 	lis, err := net.Listen("tcp", ":"+port)
 	if err != nil {
-		logger.Fatal().Err(err).Str("port", port).Msg("listen tcp")
+		log.Panic().Err(err).Str("port", port).Msg("listen tcp")
 	}
 
 	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(
-			LogInterceptor(project, logger),
-		)),
 		grpc.StatsHandler(&ocgrpc.ServerHandler{}),
+		grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(
+			logger.LogInterceptor(project, *log),
+		)),
 	)
-	protogen.RegisterTraceServiceServer(grpcServer, &traceService{})
+	protogen.RegisterTraceServiceServer(grpcServer, &checktrace.TraceService{})
 
-	logger.Info().Str("port", port).Msg("start grpc")
-	go func() {
-		err = grpcServer.Serve(lis)
-		logger.Fatal().Err(err).Msg("start grpc server")
-	}()
+	log.Info().Str("port", port).Msg("start grpc")
+	err = grpcServer.Serve(lis)
+	log.Panic().Err(err).Msg("start grpc server")
 }

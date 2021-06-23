@@ -1,21 +1,22 @@
-package main
+package checktrace
 
 import (
 	"context"
 	"errors"
 
+	"github.com/komem3/checktrace/internal/logger"
 	"github.com/komem3/checktrace/protogen"
 	"go.opencensus.io/trace"
 )
 
-type traceService struct {
+type TraceService struct {
 	protogen.UnimplementedTraceServiceServer
 }
 
-func (t *traceService) Echo(ctx context.Context, msg *protogen.StringMessage) (*protogen.StringMessage, error) {
+func (t *TraceService) Echo(ctx context.Context, msg *protogen.StringMessage) (*protogen.StringMessage, error) {
 	ctx, span := trace.StartSpan(ctx, "Echo")
 	defer span.End()
-	l := LoggerFromContext(ctx)
+	l := logger.LoggerFromContext(ctx)
 
 	l.Info().Str("msg", msg.GetValue()).Msg("get message")
 
@@ -25,10 +26,13 @@ func (t *traceService) Echo(ctx context.Context, msg *protogen.StringMessage) (*
 	}
 
 	returnValue := "hello world"
+	if msg.GetValue() != "" {
+		returnValue = msg.GetValue()
+	}
 
 	l.Info().Str("return", returnValue).Msg("return")
 
 	return &protogen.StringMessage{
-		Value: returnValue,
+		Value: "value=" + returnValue,
 	}, nil
 }
